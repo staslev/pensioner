@@ -1,0 +1,407 @@
+<!doctype html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE — קלט וקונספט אפליקציה (throwaway)</title>
+<!--
+  PROTOTYPE — THROWAWAY. Ticket 03: input experience & app shell.
+  Three structurally-different directions, switchable via ?variant=A|B|C and the floating bar.
+    A — אשף מודרך (guided wizard → dashboard): one question at a time, results at the end.
+    B — לוח מחוונים חי (live split): form + sticky live verdict/chart, recompute as you type.
+    C — קנבס מחוונים (sliders canvas): the chart is the hero, you drag to feel trade-offs.
+  Calc is a SIMPLIFIED STUB of the engine spec (accumulation → bridge → floors@60/67), not the real engine.
+  No persistence, no build — double-click to run.
+-->
+<style>
+  :root{
+    --bg:#f6f8f7; --card:#ffffff; --ink:#1f2d2b; --muted:#6b7d79;
+    --accent:#2f8f7f; --accent-soft:#e3f1 ed; --good:#2f8f7f; --bad:#c76a4e;
+    --line:#e4eae8; --shadow:0 6px 24px rgba(31,45,43,.08);
+    --r:16px; font-family:"Assistant","Heebo","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.5}
+  h1,h2,h3{font-weight:700;margin:0}
+  .muted{color:var(--muted)}
+  .app{min-height:100vh;padding:32px 24px 120px}
+  .wrap{max-width:1100px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:24px}
+  .brand .dot{width:12px;height:12px;border-radius:50%;background:var(--accent)}
+  .brand small{color:var(--muted);font-weight:500}
+  input,button{font:inherit}
+  .field label{display:block;font-size:14px;color:var(--muted);margin-bottom:6px}
+  .field input[type=number],.field input[type=text]{
+    width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:16px;
+    direction:ltr;text-align:right}   /* numbers type LTR even in the RTL page — fixes the backwards caret */
+  .field{margin-bottom:16px}
+  .btn{background:var(--accent);color:#fff;border:none;padding:12px 22px;border-radius:12px;cursor:pointer;font-weight:600}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:24px}
+  .verdict{text-align:center}
+  .verdict .big{font-size:44px;font-weight:800;letter-spacing:-.5px}
+  .verdict .big.good{color:var(--good)} .verdict .big.bad{color:var(--bad)}
+  .verdict .sub{color:var(--muted);margin-top:6px}
+  .adv{border-top:1px dashed var(--line);margin-top:14px;padding-top:12px}
+  .adv summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;list-style:none}
+  .adv summary::before{content:"＋ ";}
+  .adv[open] summary::before{content:"－ ";}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .row>*{flex:1;min-width:160px}
+  /* switcher */
+  #bar{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;
+    background:#12201e;color:#fff;padding:10px 14px;border-radius:999px;box-shadow:0 8px 30px rgba(0,0,0,.25);z-index:99}
+  #bar button{background:#2a3b38;color:#fff;border:none;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:16px}
+  #bar .lbl{font-size:13px;min-width:190px;text-align:center;font-weight:600}
+  #bar .tag{opacity:.6;font-weight:400}
+  /* chart */
+  .chartWrap{position:relative}
+  svg{display:block;width:100%;cursor:crosshair;direction:ltr}  /* RTL flips SVG text-anchor start/end → force LTR so axis labels sit in the margins */
+  svg .grid{stroke:var(--line)} svg .path{fill:none;stroke:var(--accent);stroke-width:2.5}
+  svg .area{fill:var(--accent);opacity:.08} svg .mark{stroke:#c3cfcc;stroke-dasharray:4 4}
+  svg .lab{fill:#4a5a57;font-size:12px} svg .axtitle{fill:var(--muted);font-size:12px;font-weight:600}
+  svg .cur{stroke:#9fb3ae;stroke-dasharray:3 3} svg #curDot{fill:var(--accent);stroke:#fff;stroke-width:1.5}
+  .tip{position:absolute;background:#12201e;color:#fff;padding:6px 9px;border-radius:8px;font-size:12px;
+    pointer-events:none;transform:translate(-50%,-135%);white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:5}
+  .tip .ph{opacity:.7;font-weight:400}
+  svg .path2{fill:none;stroke:#c79a3e;stroke-width:2.5;stroke-dasharray:6 4}
+  svg #dotL{fill:var(--accent);stroke:#fff;stroke-width:1.5} svg #dotP{fill:#c79a3e;stroke:#fff;stroke-width:1.5}
+  .legend{display:flex;align-items:center;gap:6px;justify-content:center;font-size:13px;color:var(--muted);margin-bottom:8px}
+  .legend .sw,.tip .sw{display:inline-block;width:14px;height:4px;border-radius:2px;vertical-align:middle;margin-inline-end:4px}
+  .sw.liq{background:var(--accent)} .sw.pen{background:#c79a3e}
+  .seg{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:6px}
+  .seg button{border:none;background:transparent;padding:9px 16px;cursor:pointer;font-weight:600;color:var(--muted)}
+  .seg button.on{background:var(--accent);color:#fff}
+  .segcap{font-size:13px;margin-bottom:12px}
+  .autopath{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin:8px 0 2px;cursor:pointer}
+  .autopath input{accent-color:var(--accent);width:16px;height:16px}
+  .swrBadge{display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px}
+  .vrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .childrow{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .childnum{font-weight:700;color:var(--accent);align-self:flex-end;margin-bottom:14px;min-width:56px}
+  .swrBadge.ok{background:#e3f1ed;color:#2f8f7f} .swrBadge.warn{background:#fbeecf;color:#9a6f1a} .swrBadge.bad{background:#f6d9d0;color:#c15a3c}
+  .advtitle{color:var(--accent);font-weight:700;font-size:14px;margin-bottom:2px}
+  .advsec .row .field{max-width:200px}   /* keep assumption / child-total inputs compact, not full-width */
+  svg .segPort{fill:var(--accent)} svg .segPen{fill:#c79a3e} svg .segBI{fill:#6f9bd8}
+  svg .segShort{fill:#f6d9d0;stroke:#c76a4e;stroke-width:1;stroke-dasharray:2 2}
+  svg .lineNet{fill:none;stroke:#23324a;stroke-width:2.5}
+  svg .labR{fill:#23324a;font-size:12px} svg .axtitleR{fill:#23324a;font-size:12px;font-weight:600}
+  .sw.sPort{background:var(--accent)} .sw.sPen{background:#c79a3e} .sw.sBI{background:#6f9bd8} .sw.sLine{background:#23324a}
+  /* A wizard */
+  .wizard{max-width:520px;margin:40px auto}
+  .dots{display:flex;gap:8px;justify-content:center;margin-bottom:22px}
+  .dots i{width:8px;height:8px;border-radius:50%;background:var(--line)} .dots i.on{background:var(--accent);width:22px;border-radius:6px}
+  .step h2{font-size:24px;margin-bottom:6px} .step p{color:var(--muted);margin:0 0 20px}
+  .wnav{display:flex;justify-content:space-between;margin-top:22px}
+  /* B split */
+  .split{display:grid;grid-template-columns:1.1fr .9fr;gap:24px}
+  .sticky{position:sticky;top:24px;align-self:start}
+  .sec{margin-bottom:8px} .sec h3{font-size:15px;margin-bottom:12px}
+  /* C canvas */
+  .canvas{max-width:820px;margin:0 auto;text-align:center}
+  .canvas.split2{max-width:1100px;text-align:right}
+  .split2{display:flex;flex-direction:row-reverse;gap:24px;align-items:flex-start}  /* graph left, knobs right (RTL) */
+  .chartpane{flex:1 1 56%;position:sticky;top:16px;align-self:flex-start}
+  .ctrlpane{flex:1 1 44%;min-width:0}
+  @media(max-width:900px){ .split2{flex-direction:column;gap:12px} .chartpane{position:sticky;top:0;z-index:10;background:var(--bg);width:100%;flex-basis:auto;padding:6px 0} .ctrlpane{width:100%} }
+  .sliders{display:grid;grid-template-columns:1fr 1fr;gap:22px 32px;margin-top:26px;text-align:right}
+  .sld .v{font-weight:700;font-size:18px} .sld input[type=range]{width:100%;accent-color:var(--accent)}
+  @media(max-width:820px){.split{grid-template-columns:1fr}.sliders{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="root" class="app"></div>
+<div id="bar"></div>
+
+<script>
+/* ---------- state (real ₪, today's shekels) ---------- */
+const S = {
+  age:45, salaryMonthly:25000, expenseMonthly:16000,   // no target FIRE age — the engine solves the earliest
+  liquid:1500000, keren:400000, pension:1200000, saveMonthly:5000,
+  realReturn:0.04, planningAge:92, coeff:200, coeffDrift:0.004, biMonthly:1838, pensionPath:'wait67', autoPath:true, advOpen:false,
+  crashPct:0.35, crashEvery:10,   // periodic market-crash stress (set crashEvery=0 to disable)
+  children:[{age:0}], childTotal:1200000,   // children: per-child age; one shared total cost (₪) to 18, amortized over an age-cost curve
+};
+function childWeight(a){ if(a<0||a>=18) return 0; if(a<3) return 0.07; if(a<6) return 0.06; if(a<12) return 0.05; return 0.052; } // per-year share of the 0–18 total (daycare & teen peaks; sums to ~100%)
+function childAnnualAt(parentAge){   // annual child expense at a parent age = Σ children (age-curve weight × total)
+  return (S.children||[]).reduce((s,c)=>{ const childAge=(c.age||0)+(parentAge-S.age); return s + childWeight(childAge)*(S.childTotal||0); }, 0); }
+function crashF(age){ const n=S.crashEvery||0, yr=age-S.age; return (n>0 && yr>0 && yr%n===0) ? (1-(S.crashPct||0)) : 1; } // market-crash multiplier this year
+const fmt = n => "₪"+Math.round(n).toLocaleString("en-US");
+const fmtK = n => { n=Math.round(n); const a=Math.abs(n);
+  if(a>=1e6) return "₪"+(n/1e6).toFixed(1).replace(/\.0$/,"")+"M";
+  if(a>=1e3) return "₪"+Math.round(n/1000).toLocaleString("en-US")+"K";
+  return "₪"+n.toLocaleString("en-US"); };
+function swrInfo(){ const port=(S.liquid||0)+(S.keren||0); const r=port>0?(S.expenseMonthly*12)/port:0;  // annual withdrawal rate on the liquid portfolio
+  const cls = r<=0.035?'ok':(r<0.05?'warn':'bad'), word = r<=0.035?'בטוח':(r<0.05?'גבולי':'מסוכן');
+  return {pct:r*100, cls, word}; }
+function swrBadgeHTML(){ const i=swrInfo(); return `<div class="swrBadge ${i.cls}" id="swrBadge" title="שיעור המשיכה השנתי מהתיק הנזיל: עד ~3.5% נחשב בטוח, מעל 5% מסוכן">משיכה שנתית ${i.pct.toFixed(1)}% · ${i.word}</div>`; }
+
+/* ---------- SIMPLIFIED engine stub (accumulation → bridge → floors@60/67) ---------- */
+function runTo(fireAge, extraLump=0){
+  let liquid=S.liquid+extraLump, keren=S.keren||0, pension=S.pension;
+  const r=S.realReturn, contrib=S.salaryMonthly*12*0.185, save=(S.saveMonthly||0)*12;
+  const base=S.expenseMonthly*12, biAnnual=S.biMonthly*12;
+  const path=[], bars=[]; let age=S.age, ok=true, failAge=null, annuity=0;
+  const path_=S.pensionPath||'wait67';
+  const annuitizeAge=(path_==='wait67')?67:60;   // when the pension pot turns into income
+  const yrsToAnn=Math.max(0,annuitizeAge-S.age), coeffEff=Math.min(S.coeff*Math.pow(1+(S.coeffDrift||0),yrsToAnn),Math.max(240,S.coeff));  // non-guaranteed מקדם drifts up with longevity, capped
+  for(; age<fireAge; age++){ const cf=crashF(age); liquid*=cf; keren*=cf; pension*=cf; path.push({age,netLiquid:liquid+keren}); liquid=liquid*(1+r)+save; keren=keren*(1+r); pension=pension*(1+r)+contrib; }
+  for(; age<=S.planningAge; age++){
+    const cf=crashF(age); liquid*=cf; keren*=cf; if(age<annuitizeAge) pension*=cf;   // market crash shock this year
+    if(age<annuitizeAge){ pension=pension*(1+r); }
+    else {
+      if(age===annuitizeAge){
+        if(path_==='commute60'){ const lump=pension*0.30; liquid+=lump*0.95; pension-=lump; } // ~30% commuted to cash (~5% tax)
+        annuity=(pension/coeffEff)*12;
+      }
+      pension=Math.max(0,pension-annuity);        // pot spent down as it pays
+    }
+    const biPart=(age>=67?biAnnual:0), penPart=(age>=annuitizeAge?annuity:0);   // income floors this year
+    const exp=base+childAnnualAt(age);   // base + active child layers (temporary)
+    // fund the expense bottom→top: Bituach Leumi, pension קצבה, then portfolio (taxable liquid ~10% CGT, then tax-free keren)
+    let rem=exp;
+    const fBI=Math.min(biPart,rem); rem-=fBI;
+    const fPen=Math.min(penPart,rem); rem-=fPen;
+    let fPort=0;
+    if(rem>0){
+      const useL=Math.min(liquid,rem*1.10); liquid-=useL; const gotL=useL/1.10; fPort+=gotL; rem-=gotL;
+      const useK=Math.min(keren,rem); keren-=useK; fPort+=useK; rem-=useK;
+    }
+    const shortfall=Math.max(0,rem);
+    if(shortfall>0.01 && ok){ ok=false; failAge=age; }
+    const surplus=(biPart+penPart)-exp; if(surplus>0) liquid+=surplus;   // floors exceed expense → reinvest
+    liquid=Math.max(liquid,0)*(1+r); keren=Math.max(keren,0)*(1+r);
+    bars.push({age,fBI,fPen,fPort,shortfall,exp});
+    path.push({age,netLiquid:liquid+keren});
+  }
+  return {ok,failAge,path,bars,maxExp:Math.max(base,...bars.map(b=>b.exp))};
+}
+function earliest(){ for(let a=S.age;a<=67;a++){ if(runTo(a).ok) return a; } return null; }
+function gapAt(target){
+  if(runTo(target).ok) return 0;
+  let lo=0, hi=8000000;
+  for(let i=0;i<40;i++){ const mid=(lo+hi)/2; runTo(target,mid).ok?hi=mid:lo=mid; }
+  return hi;
+}
+function analysis(){
+  const e=earliest();                          // earliest feasible age — the hero (no target-age input)
+  const planAge = e ?? 67;                      // the plan they'd actually follow (best-effort at 67 if never feasible)
+  const gapNow = (e===null) ? gapAt(67) : (e>S.age ? gapAt(S.age) : 0);  // ₪ lump to retire NOW (or make 67 work)
+  const res=runTo(planAge);
+  return {earliest:e, planAge, gapNow, path:res.path, bars:res.bars, expense:res.maxExp};
+}
+function bestPath(){ const paths=['wait67','annuitize60','commute60'], save=S.pensionPath; let best=save, bestAge=Infinity;  // path allowing the earliest retirement
+  for(const p of paths){ S.pensionPath=p; const e=earliest(), a=(e==null?999:e); if(a<bestAge){ bestAge=a; best=p; } }
+  S.pensionPath=save; return best; }
+
+/* ---------- mini chart ---------- */
+let CHART=null;
+function chart(a, w=520, h=260){
+  const path=a.path, bars=a.bars||[], expense=a.expense||1, fireAge=a.planAge;
+  const padL=62,padR=70,padT=22,padB=40;
+  const ages=path.map(p=>p.age);
+  const minA=Math.min(...ages), maxA=Math.max(...ages);
+  const maxLine=Math.max(...path.map(p=>p.netLiquid),1);
+  const inner=w-padL-padR, slot=inner/Math.max(1,maxA-minA), barW=Math.max(2,slot*0.7), half=barW/2;
+  const X=g=>padL+half+(g-minA)/Math.max(1,maxA-minA)*(inner-2*half);   // inset by half a bar so edge bars don't cover the axis labels
+  const Yb=v=>h-padB-(v/expense)*(h-padT-padB);      // left axis: monthly funding (labels shown /12)
+  const Yl=v=>h-padB-(v/maxLine)*(h-padT-padB);       // right axis: net liquid portfolio (0..max)
+  CHART={path,bars,expense,fireAge,w,h,padL,padR,padT,padB,minA,maxA,maxLine,inner,half};
+  const barSVG=bars.map(b=>{
+    const x=X(b.age)-barW/2; let base=0, s='';
+    const seg=(val,cls)=>{ if(val<=0)return; const y=Yb(base+val),hgt=Yb(base)-Yb(base+val); s+=`<rect class="${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hgt).toFixed(1)}"/>`; base+=val; };
+    seg(b.fBI,'segBI'); seg(b.fPen,'segPen'); seg(b.fPort,'segPort');
+    if(b.shortfall>0.01){ const y=Yb(b.exp),hgt=Yb(base)-Yb(b.exp); s+=`<rect class="segShort" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,hgt).toFixed(1)}"/>`; }
+    return s;
+  }).join('');
+  const line=path.map(p=>`${X(p.age).toFixed(1)},${Yl(p.netLiquid).toFixed(1)}`).join(' ');
+  const ytL=[0,.5,1].map(f=>`<text class="lab" x="${padL-9}" y="${Yb(expense*f)+3}" text-anchor="end">${fmtK(expense*f/12)}</text>`).join('');
+  const ytR=[0,.5,1].map(f=>`<text class="labR" x="${w-padR+9}" y="${Yl(maxLine*f)+3}" text-anchor="start">${fmtK(maxLine*f)}</text>`).join('');
+  const step=Math.max(1,Math.round((maxA-minA)/6)); let xt='';
+  for(let g=minA;g<=maxA;g+=step) xt+=`<text class="lab" x="${X(g)}" y="${h-padB+15}" text-anchor="middle">${g}</text>`;
+  const fireMark = fireAge>minA ? `<line class="mark" x1="${X(fireAge)}" y1="${padT}" x2="${X(fireAge)}" y2="${h-padB}"/><text class="lab" x="${X(fireAge)}" y="${padT-6}" text-anchor="middle">פרישה</text>`:'';
+  return `<div class="legend"><span class="sw sPort"></span>משיכה מהתיק&nbsp;&nbsp;<span class="sw sPen"></span>קצבת פנסיה&nbsp;&nbsp;<span class="sw sBI"></span>ביטוח לאומי&nbsp;&nbsp;<span class="sw sLine"></span>תיק נזיל</div>
+   <div class="chartWrap">
+    <svg viewBox="0 0 ${w} ${h}" onmousemove="chartHover(event,this)" onmouseleave="chartLeave()">
+      <line class="grid" x1="${padL}" y1="${h-padB}" x2="${w-padR}" y2="${h-padB}"/>
+      ${barSVG}
+      <polyline class="lineNet" points="${line}"/>
+      <rect x="0" y="0" width="${padL}" height="${h}" fill="#fff"/><rect x="${w-padR}" y="0" width="${padR}" height="${h}" fill="#fff"/>
+      ${fireMark}${xt}${ytL}${ytR}
+      <text class="axtitle" transform="translate(14,${padT+(h-padT-padB)/2}) rotate(-90)" text-anchor="middle">מימון חודשי (₪)</text>
+      <text class="axtitleR" transform="translate(${w-12},${padT+(h-padT-padB)/2}) rotate(-90)" text-anchor="middle">תיק נזיל (₪)</text>
+      <text class="axtitle" x="${padL+(w-padL-padR)/2}" y="${h-4}" text-anchor="middle">גיל</text>
+      <line id="cur" class="cur" x1="-9" x2="-9" y1="${padT}" y2="${h-padB}"/>
+    </svg>
+    <div id="tip" class="tip" style="display:none"></div>
+  </div>`;
+}
+window.chartHover=(e,svg)=>{ if(!CHART)return; const c=CHART, r=svg.getBoundingClientRect();
+  const X=g=>c.padL+c.half+(g-c.minA)/Math.max(1,c.maxA-c.minA)*(c.inner-2*c.half);
+  const Yl=v=>c.h-c.padB-(v/c.maxLine)*(c.h-c.padT-c.padB);
+  const vbx=(e.clientX-r.left)/r.width*c.w;
+  let age=Math.round(c.minA+(vbx-c.padL-c.half)/Math.max(1,(c.inner-2*c.half))*(c.maxA-c.minA));
+  age=Math.max(c.minA,Math.min(c.maxA,age));
+  const px=X(age);
+  svg.querySelector('#cur').setAttribute('x1',px); svg.querySelector('#cur').setAttribute('x2',px);
+  const pt=c.path.find(p=>p.age===age), b=c.bars.find(x=>x.age===age);
+  const tip=svg.parentElement.querySelector('#tip');
+  tip.style.display='block'; tip.style.left=(px/c.w*r.width)+'px'; tip.style.top=((pt?Yl(pt.netLiquid):c.padT)/c.h*r.height)+'px';
+  let html=`גיל ${age}<br><span class="sw sLine"></span>תיק נזיל: <b>${fmt(pt?pt.netLiquid:0)}</b>`;
+  if(b){ html+=`<br><span style="opacity:.6">מימון חודשי:</span>`
+    + `<br><span class="sw sPort"></span>מהתיק: <b>${fmt(b.fPort/12)}</b>`
+    + (b.fPen>0?`<br><span class="sw sPen"></span>קצבה: <b>${fmt(b.fPen/12)}</b>`:'')
+    + (b.fBI>0?`<br><span class="sw sBI"></span>ביטוח לאומי: <b>${fmt(b.fBI/12)}</b>`:'')
+    + (b.shortfall>0.01?`<br><span style="color:#f2b8a8">חוסר: <b>${fmt(b.shortfall/12)}</b></span>`:''); }
+  tip.innerHTML=html;
+};
+window.chartLeave=()=>{ const t=document.querySelector('#tip'); if(t)t.style.display='none';
+  const cu=document.querySelector('#cur'); if(cu){cu.setAttribute('x1',-9);cu.setAttribute('x2',-9);} };
+function verdictHTML(a){
+  if(a.earliest===null) return `<div class="verdict"><div class="big bad">עדיין לא</div>
+    <div class="sub">גם בגיל 67 הכסף לא מספיק — חסרים כ־<b>${fmtK(a.gapNow)}</b> כדי שהתוכנית תחזיק עד גיל ${S.planningAge}.</div></div>`;
+  if(a.earliest<=S.age) return `<div class="verdict"><div class="big good">אפשר לפרוש כבר עכשיו! 🎉</div>
+    <div class="sub">לפי הנתונים שלך הכסף מספיק עד גיל ${S.planningAge}.</div></div>`;
+  return `<div class="verdict"><div class="big good">אפשר לפרוש בגיל ${a.earliest}</div>
+    <div class="sub">זה המוקדם ביותר לפי הנתונים שלך. כדי לפרוש <b>כבר עכשיו</b> דרושים עוד כ־<b>${fmtK(a.gapNow)}</b>.</div></div>`;
+}
+
+/* ---------- shared field helpers ---------- */
+function num(key,label,step=1){ return `<div class="field"><label>${label}</label>
+  <input type="number" value="${S[key]}" step="${step}" oninput="upd('${key}',this.value)"></div>`;}
+function pct(key,label){ return `<div class="field"><label>${label}</label>
+  <input type="number" value="${(S[key]*100).toFixed(1)}" step="0.5" oninput="upd('${key}',this.value/100)"></div>`;}
+function money(key,label){ return `<div class="field"><label>${label}</label>
+  <input type="text" inputmode="numeric" value="${(S[key]||0).toLocaleString('en-US')}" oninput="updMoney('${key}',this)"></div>`;}
+window.updMoney=(k,el)=>{ const raw=el.value, caret=el.selectionStart||0;   // comma-formatted, caret-preserving
+  const dBefore=(raw.slice(0,caret).match(/\d/g)||[]).length;
+  const n=parseInt(raw.replace(/\D/g,''),10)||0; S[k]=n;
+  const f=n.toLocaleString('en-US'); el.value=f;
+  let pos=0,seen=0; while(pos<f.length && seen<dBefore){ if(/\d/.test(f[pos]))seen++; pos++; }
+  el.setSelectionRange(pos,pos); refreshOutputs(); };
+let _outHTML=null; const SLD_FMT={};
+window.upd=(k,v)=>{ S[k]=(v===''?0:(parseFloat(v)||0));
+  const vs=document.getElementById('v_'+k); if(vs&&SLD_FMT[k]) vs.textContent=SLD_FMT[k](S[k]);
+  refreshOutputs(); };                       // update outputs only — never rebuild the inputs (keeps focus/caret)
+function refreshOutputs(){ if(S.autoPath){ S.pensionPath=bestPath(); const pb=document.getElementById('pathbox'); if(pb) pb.innerHTML=pathboxHTML(); }  // auto-follow updates tabs live
+  const out=document.getElementById('out'); if(out&&_outHTML) out.innerHTML=_outHTML();
+  const sb=document.getElementById('swrBadge'); if(sb){ const i=swrInfo(); sb.textContent=`משיכה שנתית ${i.pct.toFixed(1)}% · ${i.word}`; sb.className='swrBadge '+i.cls; } }
+window.setPath=(p)=>{ S.pensionPath=p; S.autoPath=false; render(); };   // manual pick turns off auto-follow
+window.setAutoPath=(v)=>{ S.autoPath=v; if(v) S.pensionPath=bestPath(); render(); };
+window.setAdv=(v)=>{ S.advOpen=v; };
+window.addChild=()=>{ S.children=(S.children||[]).concat([{age:0}]); render(); };
+window.removeChild=(i)=>{ S.children=(S.children||[]).filter((_,j)=>j!==i); render(); };
+window.updChild=(i,k,v)=>{ S.children[i][k]=parseFloat(v)||0; refreshOutputs(); };
+
+/* ================= VARIANT A — guided wizard ================= */
+let stepIdx=0;
+const steps=[
+  {t:"בן כמה אתה?",p:"נתחיל מהבסיס.",f:()=>num("age","גיל נוכחי")},
+  {t:"כמה אתה מוציא בחודש?",p:"ההוצאה שתצטרך לממן.",f:()=>money("expenseMonthly","הוצאה חודשית (₪)")},
+  {t:"מה יש לך היום?",p:"החיסכון הנזיל, קרן ההשתלמות והפנסיה.",f:()=>money("liquid","חיסכון נזיל (₪)")+money("keren","קרן השתלמות (₪)")+money("pension","צבירת פנסיה (₪)")+
+    `<details class="adv"><summary>פרטים מתקדמים</summary>${money("saveMonthly","חיסכון חודשי (₪)")}${pct("realReturn","תשואה ריאלית שנתית")}</details>`},
+];
+function renderA(root){ _outHTML=null;
+  const last=stepIdx>=steps.length;
+  const dots=steps.map((_,i)=>`<i class="${i<=stepIdx?'on':''}"></i>`).join("")+`<i class="${last?'on':''}"></i>`;
+  if(!last){ const s=steps[stepIdx];
+    root.innerHTML=`<div class="wrap"><div class="brand"><span class="dot"></span><b>פרישה מוקדמת</b><small>· אשף מודרך</small></div>
+     <div class="wizard"><div class="dots">${dots}</div>
+      <div class="card step"><h2>${s.t}</h2><p>${s.p}</p>${s.f()}
+        <div class="wnav">
+          <button class="btn ghost" onclick="stepIdx=Math.max(0,stepIdx-1);render()" ${stepIdx===0?'style="visibility:hidden"':''}>הקודם</button>
+          <button class="btn" onclick="stepIdx++;render()">${stepIdx===steps.length-1?'הצג תוצאה':'הבא'}</button>
+        </div></div></div></div>`;
+  } else { const a=analysis();
+    root.innerHTML=`<div class="wrap"><div class="brand"><span class="dot"></span><b>פרישה מוקדמת</b><small>· התוצאה שלך</small></div>
+     <div class="wizard"><div class="card">${verdictHTML(a)}<div style="margin-top:18px">${chart(a,480,240)}</div>
+       <div class="wnav"><button class="btn ghost" onclick="stepIdx=0;render()">התחל מחדש</button>
+       <button class="btn ghost" onclick="stepIdx=steps.length-1;render()">ערוך נתונים</button></div></div></div></div>`;
+  }
+}
+
+/* ================= VARIANT B — live split dashboard ================= */
+function renderB(root){ const a=analysis();
+  root.innerHTML=`<div class="wrap"><div class="brand"><span class="dot"></span><b>פרישה מוקדמת</b><small>· לוח מחוונים חי</small></div>
+   <div class="split">
+     <div class="card">
+       <div class="sec"><h3>בסיסי</h3><div class="row">${num("age","גיל נוכחי")}</div>
+         ${money("expenseMonthly","הוצאה חודשית (₪)")}<div class="row">${money("liquid","חיסכון נזיל (₪)")}${money("keren","קרן השתלמות (₪)")}${money("pension","צבירת פנסיה (₪)")}</div></div>
+       <details class="adv"><summary>הכנסה וחיסכון</summary><div class="row">${money("salaryMonthly","שכר חודשי (₪)")}${money("saveMonthly","חיסכון חודשי (₪)")}</div></details>
+       <details class="adv"><summary>הנחות מתקדמות</summary><div class="row">${pct("realReturn","תשואה ריאלית")}${num("coeff","מקדם קצבה")}${num("planningAge","תוחלת תכנון")}</div></details>
+     </div>
+     <div class="sticky card" id="out"></div>
+   </div></div>`;
+  _outHTML=()=>{const x=analysis();return verdictHTML(x)+`<div style="margin-top:16px">${chart(x,440,240)}</div>`;};
+  refreshOutputs();
+}
+
+/* ================= VARIANT C — sliders canvas ================= */
+function sld(key,label,min,max,step,disp,extra){ SLD_FMT[key]=disp; return `<div class="sld"><label class="muted">${label}</label>
+  <div class="vrow"><div class="v" id="v_${key}">${disp(S[key])}</div>${extra||''}</div><input type="range" min="${min}" max="${max}" step="${step}" value="${S[key]}" oninput="upd('${key}',this.value)"></div>`;}
+function pathboxHTML(){ return `<div class="seg" style="margin-top:14px">
+       <button type="button" class="${S.pensionPath==='wait67'?'on':''}" onclick="setPath('wait67')">קצבה מלאה (67)</button>
+       <button type="button" class="${S.pensionPath==='annuitize60'?'on':''}" onclick="setPath('annuitize60')">קצבה מוקדמת (60)</button>
+       <button type="button" class="${S.pensionPath==='commute60'?'on':''}" onclick="setPath('commute60')">היוון חלקי (60)</button>
+     </div>
+     <label class="autopath"><input type="checkbox" ${S.autoPath?'checked':''} onchange="setAutoPath(this.checked)"> עדכן אוטומטית למסלול הפרישה המוקדם ביותר</label>
+     <div class="segcap muted">${({wait67:'הפנסיה הופכת לקצבה בגיל 67 (קצבה מלאה).',annuitize60:'מושכים קצבת פנסיה כבר מגיל 60 — מופחתת, אך מוקדמת.',commute60:'בגיל 60 מושכים ~30% מהפנסיה כסכום חד-פעמי לחיסכון הנזיל, והשאר כקצבה.'})[S.pensionPath]}</div>`; }
+function renderC(root){ if(S.autoPath) S.pensionPath=bestPath();   // auto-follow the earliest-retirement path when enabled
+  const a=analysis();
+  root.innerHTML=`<div class="wrap"><div class="brand"><span class="dot"></span><b>פרישה מוקדמת</b><small>· קנבס מחוונים</small></div>
+   <div class="canvas split2">
+     <div class="chartpane">
+     <div id="out"></div>
+     <div id="pathbox">${pathboxHTML()}</div>
+     </div>
+     <div class="ctrlpane">
+     <details class="adv" style="margin-top:10px;text-align:right"><summary>איך המספר מחושב?</summary>
+       <ul style="margin:10px 0 0;padding-inline-start:20px;color:var(--muted);font-size:14px;line-height:1.8">
+         <li>כל הסכומים <b>ריאליים</b> — בשקלים של היום (האינפלציה כבר נוטרלה).</li>
+         <li>עד הפרישה ממשיכים לחסוך ולצבור תשואה ריאלית.</li>
+         <li>מגיל הפרישה מושכים מהחיסכון הנזיל כדי לכסות את ההוצאות — שלב ה<b>"גשר"</b>.</li>
+         <li>מגיל 60 יכולה להתחיל קצבת הפנסיה; מגיל 67 נוספת קצבת אזרח ותיק (ביטוח לאומי) — והמשיכה מהחיסכון קטנה.</li>
+         <li>רווחי הון ממוסים ב־25% ריאלי; קרן השתלמות פטורה ממס.</li>
+         <li><b>"הגיל המוקדם ביותר"</b> = הגיל הראשון שבו הכסף מספיק עד גיל התכנון (${S.planningAge}).</li>
+       </ul></details>
+     <div class="sliders">
+       ${sld("expenseMonthly","הוצאה חודשית",5000,50000,250,fmt,swrBadgeHTML())}
+       ${sld("liquid","חיסכון נזיל",0,30000000,50000,fmt)}
+       ${sld("keren","קרן השתלמות",0,3000000,25000,fmt)}
+       ${sld("saveMonthly","חיסכון חודשי",0,25000,250,fmt)}
+     </div>
+     <div class="advsec" style="margin-top:20px;text-align:right"><div class="advtitle">ילדים (הוצאה זמנית)${(S.children||[]).length?` · ${(S.children||[]).length} סה"כ`:''}</div>
+       <div class="segcap muted">עלות כוללת אחת לכל ילד/ה עד גיל 18, נפרסת לפי עקומת גיל. הוסיפו ילדים לפי גילם.</div>
+       <div class="row">${money("childTotal","עלות לילד/ה עד 18 (₪)")}</div>
+       ${(S.children||[]).map((c,i)=>`<div class="childrow"><span class="childnum">ילד/ה ${i+1}</span>
+         <div class="field" style="max-width:130px;margin:0"><label>גיל</label><input type="number" value="${c.age}" oninput="updChild(${i},'age',this.value)"></div>
+         <button type="button" class="btn ghost" data-remove="${i}">הסר</button>${i===(S.children.length-1)?`<button type="button" class="btn ghost" data-add="1">+ הוסף</button>`:''}</div>`).join('')}
+       ${(S.children||[]).length===0?`<button type="button" class="btn ghost" data-add="1">+ הוסף ילד/ה</button>`:''}
+     </div>
+     <div class="advsec" style="margin-top:20px;text-align:right"><div class="advtitle">פנסיה והנחות</div>
+       <div class="row" style="margin-top:12px">${num("age","גיל")}${money("pension","צבירת פנסיה (₪)")}${pct("realReturn","תשואה ריאלית")}${num("coeff","מקדם קצבה")}${pct("coeffDrift","סחף מקדם (%)")}${pct("crashPct","גודל משבר (%)")}${num("crashEvery","משבר כל (שנים)")}</div></div>
+   </div></div></div>`;
+  _outHTML=()=>{const x=analysis();return verdictHTML(x)+`<div class="card" style="margin-top:18px">${chart(x,780,300)}</div>`;};
+  refreshOutputs();
+}
+
+/* ---------- switcher ---------- */
+const VARIANTS={A:{fn:renderA,name:"אשף מודרך"},B:{fn:renderB,name:"לוח מחוונים חי"},C:{fn:renderC,name:"קנבס מחוונים"}};
+const order=["A","B","C"];
+function current(){ return (new URLSearchParams(location.search).get("variant")||"A").toUpperCase(); }
+function setVariant(v){ const u=new URL(location); u.searchParams.set("variant",v); history.replaceState({},"",u); render(); }
+function render(){ const v=VARIANTS[current()]?current():"A";
+  VARIANTS[v].fn(document.getElementById("root"));
+  document.getElementById("bar").innerHTML=
+    `<button onclick="cycle(-1)">‹</button><span class="lbl">${v} <span class="tag">— ${VARIANTS[v].name}</span></span><button onclick="cycle(1)">›</button>`;
+}
+window.cycle=d=>{ const i=order.indexOf(current()); setVariant(order[(i+d+order.length)%order.length]); };
+document.addEventListener("click",e=>{   // delegated: robust against inline-handler quirks
+  const rm=e.target.closest("[data-remove]"); if(rm){ removeChild(parseInt(rm.dataset.remove,10)); return; }
+  if(e.target.closest("[data-add]")) addChild(); });
+addEventListener("keydown",e=>{ const t=e.target.tagName; if(t==="INPUT"||t==="TEXTAREA")return;
+  if(e.key==="ArrowLeft")cycle(1); if(e.key==="ArrowRight")cycle(-1); }); // RTL-friendly
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,303 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Ticket 04 (year-explainer panel). Not production code.
+  DECIDED: two-pane top (expense | funding) — variant B layout won.
+  OPEN QUESTION now: the bottom TAX band. It must show TOTAL taxes this year across BOTH sources
+  (pension annuity = מס שולי, portfolio draw = מס רווח הון) and their attribution.
+  Three tax-band treatments, all merging TABLE + BARS, switchable via the floating bar (or ←/→).
+  Numbers hand-computed from src/engine/tax.ts rules + asset 03. This-year scope; effective rate shown (labeled).
+-->
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>פרוטוטייפ — פאנל הסבר לשנה (פס המס)</title>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#16212e; --panel2:#1b2836; --ink:#e8eef4; --mut:#9fb0c0; --line:#2a3a4b;
+    --port:#5aa9e6; --pen:#7ee0a2; --bi:#f2c14e; --short:#f2795a; --exempt:#7ee0a2;
+    --tax:#c9a6ff;   /* מס שולי (pension tax) */
+    --cgt:#e0a06a;   /* מס רווח הון (portfolio tax) */
+    --accent:#8ecbff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",Arial,sans-serif;padding:0 0 90px}
+  .wrap{max-width:860px;margin:0 auto;padding:20px 16px}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:13px;margin:0 0 18px}
+  .num{direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+  .mini{color:var(--mut);font-size:11px;margin-top:1px}
+  .neg{color:var(--short)} .pos{color:var(--pen)}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:2px;flex:none;margin-inline-end:6px;vertical-align:middle}
+  /* faux chart strip */
+  .chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 14px 8px;margin-bottom:14px}
+  .chart .cap{color:var(--mut);font-size:12px;margin-bottom:8px}
+  .bars{display:flex;align-items:flex-end;gap:6px;height:120px}
+  .barcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;cursor:pointer;gap:4px}
+  .bar{width:70%;border-radius:4px 4px 0 0;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+  .bar span{display:block}
+  .barcol .age{font-size:11px;color:var(--mut)}
+  .barcol.sel .age{color:var(--accent);font-weight:700}
+  .barcol.sel .bar{outline:2px solid var(--accent);outline-offset:2px}
+  .barcol.hero .age::after{content:"★";font-size:9px;color:var(--pen);margin-inline-start:2px}
+  .s-port{background:var(--port)} .s-pen{background:var(--pen)} .s-bi{background:var(--bi)}
+  /* panel shell */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .phdr{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px}
+  .phdr .age{font-size:22px;font-weight:700}
+  .phdr .phase{color:var(--accent);font-size:13px}
+  .phdr .path{color:var(--mut);font-size:12px}
+  .body{padding:14px 16px 18px}
+  .caveat{background:#2a2036;border:1px solid #4a3a63;color:#e5d6ff;border-radius:8px;padding:8px 11px;font-size:12.5px}
+  .caveat b{color:#d9c2ff}
+  .flag{display:inline-block;background:#3a2f1a;border:1px solid #6b5426;color:#f2d493;border-radius:5px;font-size:10.5px;padding:0 5px;margin-inline-start:6px;vertical-align:middle}
+  /* two-pane top */
+  .cols{display:flex;gap:14px;flex-wrap:wrap}
+  .cols>.col{flex:1;min-width:230px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .col h3{margin:2px 0 6px;font-size:13px;color:var(--mut);font-weight:600}
+  .row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  .row .lab{display:flex;align-items:center}
+  .row .amt{font-weight:600}
+  .row .note,.formula{color:var(--mut);font-size:12px;margin-top:2px}
+  .total{display:flex;justify-content:space-between;padding:8px 0 2px;font-weight:700;border-top:2px solid var(--line);margin-top:4px}
+  /* tax band */
+  .taxband{margin-top:14px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .taxband h3{margin:0 0 10px;font-size:13px;color:var(--mut)}
+  .taxtbl{width:100%;border-collapse:collapse;font-size:13px}
+  .taxtbl th{color:var(--mut);font-weight:600;text-align:right;padding:4px 6px;border-bottom:1px solid var(--line);font-size:12px}
+  .taxtbl td{padding:6px 6px;border-bottom:1px dashed var(--line);vertical-align:top;text-align:right}
+  .taxtbl.mt{margin-top:12px}
+  .ibar{height:5px;background:var(--panel);border-radius:3px;margin-top:4px;overflow:hidden}
+  .ibar i{display:block;height:100%}
+  .splitbar{display:flex;height:24px;border-radius:6px;overflow:hidden;margin:12px 0 4px}
+  .splitbar span{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#12202e;white-space:nowrap;overflow:hidden;padding:0 6px}
+  .srcbar{margin:10px 0}
+  .srcbar-h{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+  .gnbar{display:flex;height:24px;border-radius:5px;overflow:hidden;background:var(--panel)}
+  .gnbar .netpart{background:#33465a}
+  .gnbar i{display:block}
+  .wf{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin:8px 0}
+  .wf-h{font-size:13px;margin-bottom:4px}
+  .wf-row{display:flex;justify-content:space-between;padding:2px 0;font-size:13px}
+  .wf-row.mut{color:var(--mut)}
+  .wf-row.strong{font-weight:700;border-top:1px solid var(--line);margin-top:3px;padding-top:5px}
+  /* switcher */
+  .switch{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#0b1119;border:1px solid var(--accent);
+    border-radius:999px;display:flex;align-items:center;gap:12px;padding:8px 12px;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:50}
+  .switch button{background:none;border:none;color:var(--accent);font-size:18px;cursor:pointer;padding:2px 8px}
+  .switch .vlabel{font-size:13px;min-width:230px;text-align:center}
+  .switch .vlabel b{color:var(--accent)}
+  .yearsel{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+  .yearsel button{background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:12.5px}
+  .yearsel button.on{border-color:var(--accent);color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>פאנל הסבר לשנה — פרוטוטייפ (מיקוד: פס המס)</h1>
+  <p class="sub">מבנה שתי העמודות (הוצאה | מימון) כבר נבחר. עכשיו בוחרים את <b>פס המס התחתון</b>: כל שלוש הגרסאות מציגות <b>סך המס השנה + ייחוס לפנסיה מול תיק</b>, ומשלבות טבלה עם פסים ביחסים שונים. עברו בסרגל התחתון או עם ←/→. שלוש שנות מפתח (★).</p>
+
+  <div class="chart">
+    <div class="cap">מימון חודשי לפי גיל — לחצו על עמודה כדי לנעוץ שנה</div>
+    <div class="bars" id="bars"></div>
+  </div>
+
+  <div class="yearsel" id="yearsel"></div>
+  <div class="panel"><div id="panel"></div></div>
+</div>
+
+<div class="switch">
+  <button id="prev" aria-label="הקודם">◀</button>
+  <div class="vlabel">פס מס <b id="vkey">A</b> — <span id="vname"></span></div>
+  <button id="next" aria-label="הבא">▶</button>
+</div>
+
+<script>
+const F = n => (n<0?"-":"") + "₪" + Math.round(Math.abs(n)).toLocaleString("en-US");
+const M = n => F(n/12) + "/ח׳";
+
+// ---- hand-computed example years (illustrative; from src/engine/tax.ts rules + asset 03) ----
+const EXPENSE = { total:216000, rows:[
+  {label:"הוצאה בסיסית (ללא שכ״ד)", amount:156000, note:"₪13,000/ח׳ · גדלה ~0.5% ריאלי לשנה"},
+  {label:"שכר דירה", amount:60000, note:"₪5,000/ח׳ · גדל מהר יותר, ~1.5% ריאלי"},
+  {label:"ילדים", amount:0, note:"אין ילדים בגיל זה"},
+]};
+
+const HERO = {
+  58:{ age:58, phase:"גשר — מימון מהחיסכון", path:"פרישה מוקדמת · טרם קצבה",
+    expense:EXPENSE,
+    funding:[ {kind:"port",label:"משיכה מהתיק", net:216000, gross:240000,
+      formula:"ברוטו ₪240,000 − מס רווח הון ₪24,000 = נטו ₪216,000",
+      note:"25% על פלח הרווח בלבד (40% מהמשיכה הם רווח ריאלי)"} ],
+    cgt:{gainFrac:.40, gross:240000, paid:24000}, annuity:null, caveat:null },
+
+  63:{ age:63, statAge:67, phase:"קצבה מוקדמת (60+) — לפני גיל הזכאות", path:"annuitize60 · קצבה מופחתת מגיל 60",
+    expense:EXPENSE,
+    funding:[
+      {kind:"pen",label:"קצבת פנסיה (נטו)", net:92459, gross:96000,
+        formula:"ברוטו ₪96,000 − מס שולי ₪3,541 = נטו ₪92,459",
+        note:"בגיל 63 אין פטור §9א — הקצבה חייבת במלואה"},
+      {kind:"port",label:"משיכה מהתיק", net:123541, gross:137268,
+        formula:"ברוטו ₪137,268 − מס רווח הון ₪13,727 = נטו ₪123,541", note:"25% על פלח הרווח"},
+    ],
+    cgt:{gainFrac:.40, gross:137268, paid:13727},
+    annuity:{ grossM:8000, gross:96000, exemptActive:false, exemptM:0, exempt:0, taxable:96000,
+      marginal:3541, net:92459, netM:7705,
+      why:"גיל 63 < גיל הזכאות (67) → פטור §9א לא חל → כל ₪96,000 חייבים במס שולי (בניכוי 2.25 נק׳ זיכוי)." },
+    caveat:"המנוע אינו מודל פלח <b>קצבה מוכרת</b> (פטור כבר מגיל 60). אם יש לך פלח כזה — המס בפועל כאן נמוך יותר." },
+
+  68:{ age:68, statAge:67, phase:"קצבה מלאה — הפטור פעיל", path:"אחרי גיל הזכאות · פנסיה + ביטוח לאומי",
+    expense:EXPENSE,
+    funding:[
+      {kind:"bi",label:"קצבת זקנה (ביטוח לאומי)", net:22056, gross:22056,
+        formula:"₪1,838/ח׳ · פטורה ממס", note:"פעילה מגיל הזכאות"},
+      {kind:"pen",label:"קצבת פנסיה (נטו)", net:164280, gross:168000,
+        formula:"ברוטו ₪168,000 − מס שולי ₪3,720 = נטו ₪164,280",
+        note:"פלח פטור §9א ₪70,725 + פלח חייב ₪97,275"},
+    ],
+    cgt:{gainFrac:.40, gross:32960, paid:3296},
+    annuity:{ grossM:14000, gross:168000, exemptActive:true, exemptPct:.625, ceiling:9430,
+      exemptM:5894, exempt:70725, taxable:97275, marginal:3720, net:164280, netM:13690, recognizedM:1000,
+      why:"פטור §9א = 62.5% × min(₪14,000, תקרת ₪9,430) = ₪5,894/ח׳ פטור. היתרה ₪97,275 חייבת במס שולי." },
+    caveat:"פלח <b>קצבה מוכרת</b> (~₪1,000/ח׳, פטור מגיל 60) מוצג להמחשה בלבד — <b>המנוע אינו עוקב אחריו</b>." },
+};
+HERO[68].funding.push({kind:"port",label:"השלמה מהתיק", net:29664, gross:32960,
+  formula:"ברוטו ₪32,960 − מס רווח הון ₪3,296 = נטו ₪29,664", note:"רק הפער שהקצבאות לא כיסו"});
+
+const AGES = [56,58,60,63,66,68,70,72];
+function yearData(age){
+  if(HERO[age]) return HERO[age];
+  return { age, phase: age<60?"גשר — מימון מהחיסכון":"קצבה", path:"שנת דוגמה", expense:EXPENSE,
+    funding:[{kind:"port",label:"משיכה מהתיק", net:216000, gross:238000, note:"פירוט מס מלא בשלוש שנות המפתח (★)"}],
+    cgt:{gainFrac:.38,gross:238000,paid:22000}, annuity:null,
+    caveat:"שנת דוגמה מפושטת — בחרו 58 / 63 / 68 לפירוט המלא." };
+}
+const KINDCOL={port:"s-port",pen:"s-pen",bi:"s-bi"};
+
+// ---------- shared bits ----------
+function expenseRows(y){ return y.expense.rows.filter(r=>r.amount>0 || r.note)
+  .map(r=>`<div class="row"><div><div class="lab">${r.label}</div>${r.note?`<div class="note">${r.note}</div>`:""}</div><div class="amt num">${F(r.amount)}</div></div>`).join(""); }
+function fundingRows(y){ return y.funding.map(f=>`<div class="row">
+  <div><div class="lab"><span class="sw ${KINDCOL[f.kind]}"></span>${f.label}</div>
+  ${f.formula?`<div class="formula num">${f.formula}</div>`:""}${f.note?`<div class="note">${f.note}</div>`:""}</div>
+  <div class="amt num">${F(f.net)}</div></div>`).join(""); }
+function twoPaneTop(y){ return `<div class="cols">
+    <div class="col"><h3>לאן הכסף הולך</h3>${expenseRows(y)}
+      <div class="total"><span>הוצאה</span><span class="num">${F(y.expense.total)}</span></div></div>
+    <div class="col"><h3>מהיכן הכסף מגיע (נטו, אחרי מס)</h3>${fundingRows(y)}
+      <div class="total"><span>מימון</span><span class="num">${F(y.funding.reduce((s,f)=>s+f.net,0))}</span></div></div>
+  </div>`; }
+
+// ---------- per-year tax lines across ALL sources ----------
+function taxLines(y){
+  const L=[];
+  if(y.annuity){ const a=y.annuity;
+    L.push({src:"קצבת פנסיה", tname:"מס שולי", kind:"pen", gross:a.gross, exempt:a.exempt||0, base:a.taxable,
+      baseLabel:"פלח חייב", tax:a.marginal, rate:a.marginal/a.gross, rateNote:"שיעור אפקטיבי מהברוטו"}); }
+  if(y.cgt){ const c=y.cgt, gain=Math.round(c.gross*c.gainFrac);
+    L.push({src:"משיכה מהתיק", tname:"מס רווח הון", kind:"port", gross:c.gross, exempt:0, base:gain,
+      baseLabel:"פלח רווח", tax:c.paid, rate:c.paid/c.gross, rateNote:"25% על הרווח (≈"+Math.round(c.paid/c.gross*100)+"% מהמשיכה)"}); }
+  return L;
+}
+const taxColor = k => k==="pen" ? "var(--tax)" : "var(--cgt)";
+const totalTax = L => L.reduce((s,l)=>s+l.tax,0);
+const totalGross = L => L.reduce((s,l)=>s+l.gross,0);
+
+// ---------- Band A — table with inline attribution bars + total split bar ----------
+function bandTable(y){
+  const L=taxLines(y), T=totalTax(L); if(!L.length) return noTax();
+  const rows=L.map(l=>`<tr>
+    <td><span class="sw" style="background:${taxColor(l.kind)}"></span>${l.src}<div class="mini">${l.tname}</div></td>
+    <td class="num">${F(l.gross)}</td>
+    <td class="num">${F(l.base)}<div class="mini">${l.baseLabel}</div></td>
+    <td class="num neg">${F(l.tax)}</td>
+    <td class="num">${(l.rate*100).toFixed(1)}%<div class="mini">${l.rateNote}</div></td></tr>`).join("");
+  return `<div class="taxband"><h3>סך המס השנה — לפי מקור</h3>
+    <table class="taxtbl"><thead><tr><th>מקור</th><th>ברוטו</th><th>בסיס חייב</th><th>מס</th><th>שיעור</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="splitbar">${L.map(l=>`<span style="flex:${l.tax||0.001};background:${taxColor(l.kind)}">${l.tname} ${Math.round(l.tax/T*100)}%</span>`).join("")}</div>
+    <div class="total"><span>סך המס השנה</span><span class="num neg">${F(T)}</span></div>${bandCaveat(y)}</div>`;
+}
+// ---------- Band B — per-source net|tax bars, then a compact table ----------
+function bandBarsTable(y){
+  const L=taxLines(y), T=totalTax(L); if(!L.length) return noTax();
+  const bars=L.map(l=>{ const net=l.gross-l.tax, txPct=Math.round(l.tax/l.gross*100);
+    return `<div class="srcbar"><div class="srcbar-h"><span><span class="sw" style="background:${taxColor(l.kind)}"></span>${l.src} · ${l.tname}</span><span class="num">ברוטו ${F(l.gross)}</span></div>
+      <div class="gnbar"><i class="netpart" style="flex:${100-txPct}"></i><i style="flex:${txPct};background:${taxColor(l.kind)}"></i></div>
+      <div class="mini num">נטו ${F(net)}  ·  מס ${F(l.tax)}  (${(l.rate*100).toFixed(1)}%)</div></div>`; }).join("");
+  const tbl=`<table class="taxtbl mt"><thead><tr><th>מקור</th><th>מס</th><th>שיעור</th></tr></thead><tbody>
+    ${L.map(l=>`<tr><td><span class="sw" style="background:${taxColor(l.kind)}"></span>${l.tname}</td><td class="num neg">${F(l.tax)}</td><td class="num">${(l.rate*100).toFixed(1)}%</td></tr>`).join("")}</tbody></table>`;
+  return `<div class="taxband"><h3>סך המס השנה — לפי מקור</h3>${bars}${tbl}
+    <div class="total"><span>סך המס השנה</span><span class="num neg">${F(T)}</span></div>${bandCaveat(y)}</div>`;
+}
+// ---------- Band C — gross→net waterfall per source ----------
+function bandWaterfall(y){
+  const L=taxLines(y), T=totalTax(L); if(!L.length) return noTax();
+  const blocks=L.map(l=>{ const steps=[["ברוטו",l.gross,""]];
+    if(l.kind==="pen"&&l.exempt>0) steps.push(["− פטור §9א (קצבה מזכה)",-l.exempt,"pos"]);
+    steps.push([l.baseLabel,l.base,"mut"]);
+    steps.push(["− "+l.tname,-l.tax,"neg"]);
+    steps.push(["נטו לכיס",l.gross-l.tax,"strong"]);
+    return `<div class="wf"><div class="wf-h"><span class="sw" style="background:${taxColor(l.kind)}"></span>${l.src} <span class="mini">(${l.tname} · ${(l.rate*100).toFixed(1)}%)</span></div>
+      ${steps.map(([lab,v,cls])=>`<div class="wf-row ${cls}"><span>${lab}</span><span class="num">${v<0?"−"+F(-v):F(v)}</span></div>`).join("")}</div>`; }).join("");
+  return `<div class="taxband"><h3>איך נגזר המס — מקור אחר מקור</h3>${blocks}
+    <div class="total"><span>סך המס השנה</span><span class="num neg">${F(T)}</span></div>${bandCaveat(y)}</div>`;
+}
+function noTax(){ return `<div class="taxband"><h3>מס השנה</h3><p class="mini">אין מס השנה — המימון פטור (קרן השתלמות / ביטוח לאומי) או שאין משיכה חייבת.</p></div>`; }
+function bandCaveat(y){ return y.caveat?`<div class="caveat" style="margin-top:12px"><b>הסתייגות:</b> ${y.caveat}</div>`:""; }
+
+// ---------- Variants: fixed two-pane top; differ ONLY in the tax band ----------
+function VariantA(y){ return `${twoPaneTop(y)}${bandTable(y)}`; }
+function VariantB(y){ return `${twoPaneTop(y)}${bandBarsTable(y)}`; }
+function VariantC(y){ return `${twoPaneTop(y)}${bandWaterfall(y)}`; }
+
+const VARIANTS={A:{name:"טבלה + פסי ייחוס",fn:VariantA},B:{name:"פסים לפי מקור + טבלה",fn:VariantB},C:{name:"מפל ברוטו→נטו",fn:VariantC}};
+const ORDER=["A","B","C"];
+let vkey = new URLSearchParams(location.search).get("variant"); if(!ORDER.includes(vkey)) vkey="A";
+let selAge = 63;
+
+function drawBars(){
+  const el=document.getElementById("bars"); el.innerHTML="";
+  AGES.forEach(age=>{
+    const y=yearData(age), hero=!!HERO[age];
+    let segs;
+    if(y.annuity){ segs=[["s-bi",(y.funding.find(f=>f.kind==="bi")?.net||0)],["s-pen",(y.funding.find(f=>f.kind==="pen")?.net||0)],["s-port",y.funding.filter(f=>f.kind==="port").reduce((s,f)=>s+f.net,0)]]; }
+    else segs=[["s-port",216000]];
+    const tot=segs.reduce((s,x)=>s+x[1],0)||1, h=Math.min(110, 40+tot/3000);
+    const col=document.createElement("div"); col.className="barcol"+(age===selAge?" sel":"")+(hero?" hero":"");
+    const bar=document.createElement("div"); bar.className="bar"; bar.style.height=h+"px";
+    segs.forEach(([c,v])=>{ if(v<=0)return; const s=document.createElement("span"); s.className=c; s.style.height=(v/tot*100)+"%"; bar.appendChild(s); });
+    const lab=document.createElement("div"); lab.className="age"; lab.textContent=age;
+    col.appendChild(bar); col.appendChild(lab);
+    col.onclick=()=>{ selAge=age; render(); };
+    el.appendChild(col);
+  });
+}
+function drawYearSel(){
+  const el=document.getElementById("yearsel"); el.innerHTML="";
+  [[58,"גיל 58 · גשר ★"],[63,"גיל 63 · קצבה מוקדמת ★"],[68,"גיל 68 · קצבה מלאה ★"]].forEach(([age,t])=>{
+    const b=document.createElement("button"); b.textContent=t; if(age===selAge)b.className="on";
+    b.onclick=()=>{selAge=age;render();}; el.appendChild(b);
+  });
+}
+function renderPanel(){
+  const y=yearData(selAge);
+  document.getElementById("panel").innerHTML=`
+    <div class="phdr"><div><span class="age num">גיל ${y.age}</span> &nbsp;<span class="phase">${y.phase}</span></div>
+    <span class="path">${y.path}</span></div>
+    <div class="body">${VARIANTS[vkey].fn(y)}</div>`;
+}
+function render(){
+  document.getElementById("vkey").textContent=vkey;
+  document.getElementById("vname").textContent=VARIANTS[vkey].name;
+  const u=new URL(location); u.searchParams.set("variant",vkey); history.replaceState(null,"",u);
+  drawBars(); drawYearSel(); renderPanel();
+}
+function cycle(d){ let i=ORDER.indexOf(vkey); i=(i+d+ORDER.length)%ORDER.length; vkey=ORDER[i]; render(); }
+document.getElementById("prev").onclick=()=>cycle(-1);
+document.getElementById("next").onclick=()=>cycle(1);
+addEventListener("keydown",e=>{ const t=e.target.tagName; if(t==="INPUT"||t==="TEXTAREA")return;
+  if(e.key==="ArrowLeft")cycle(1); if(e.key==="ArrowRight")cycle(-1); }); // RTL: left = forward
+render();
+</script>
+</body>
+</html>
